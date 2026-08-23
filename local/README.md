@@ -159,6 +159,15 @@ DURATION RESULT_DIR RESULT_FILENAME SCENARIO_TYPE=agentic-coding IS_AGENTIC=1 PO
 
 ## 结果聚合
 
+两种场景产物不同，用不同工具：
+
+| 场景 | 原始产物 | 聚合工具 |
+| --- | --- | --- |
+| fixed-seq-len | `benchmark_serving.py` 的单文件 JSON | `local/aggregate_results.py` |
+| agentic-coding | `RESULT_DIR/aiperf_artifacts/`（逐请求 + 服务器指标） | `local/aggregate_agentic.sh` + `local/show_agentic.py` |
+
+### fixed-seq-len（纯吞吐）：aggregate_results.py
+
 每个 job 的原始结果 JSON（`benchmark_serving.py` 产出，文件名以 `RESULT_FILENAME` 开头）会被
 收集到 `RESULT_ROOT`（默认 `./local_results`）。用 `local/aggregate_results.py` 把整个目录汇总成
 一张对比表 + CSV：
@@ -192,3 +201,57 @@ Pareto 性能曲线所需的维度。
 > 注意：官方 `agg_*.json` 还含功耗字段（`aggregate_power.py` 从 `gpu_metrics.csv` 积分得到）。
 > 本地聚合器不做功耗积分（那需要 `benchmark_lib.sh` 的 GPU 监控采样和额外模块）。若需要功耗，
 > 直接用 `utils/process_result.py` 配合各 job 留下的 `gpu_metrics.csv`。
+
+### agentic-coding：aggregate_agentic.sh + show_agentic.py
+
+agentic 场景不产出 `benchmark_serving.py` 那种单 JSON，而是把 AIPerf 回放的原始产物写到
+`RESULT_DIR/aiperf_artifacts/`（`profile_export.jsonl` 逐请求 + `server_metrics_export.json`）。
+必须再跑一步 `process_agentic_result` 把它聚合成一份指标 JSON——**这一步在纯脚本直跑时经常没自动
+完成**（`INFMAX_CONTAINER_WORKSPACE` 没指向仓库根时会静默失败），所以 `RESULT_DIR` 里只剩原始产物、
+没有聚合 JSON 是常见情况。用 `local/aggregate_agentic.sh` 一条命令补上：
+
+```bash
+# 在推理容器内，从仓库根运行
+cd <仓库根>                                  # 例如 /shared/.../InferenceX
+local/aggregate_agentic.sh /workspace/results   # 参数是 RESULT_DIR，默认就是 /workspace/results
+```
+
+它会：
+1. 从 `RESULT_DIR/benchmark_command.txt` 解析 `CONC`、`MODEL`；
+2. 从服务器命令文件（`sglang_command.txt` / `vllm_command.txt`）解析
+   `TP`/`EP`/`dp-attn`/spec/KV-offload（`--enable-hierarchical-cache` → `dram`+`hicache`/`mooncake`）；
+3. 由 model 推 `MODEL_PREFIX`，拼出与 `expand_recipe.py` 一致的 `RESULT_FILENAME`，
+   并自动补 `KV_OFFLOAD_BACKEND_METADATA`（否则 dram 档会报 `KV_OFFLOAD_BACKEND is required`）；
+4. `cd` 仓库根跑 `python3 -m utils.agentic.aggregation.process_agentic_result`，
+   把聚合 JSON 写到 `AGENTIC_OUTPUT_DIR`（默认 = `RESULT_DIR`）；
+5. 调 `show_agentic.py` 打印指标表。
+
+任何自动值都能用环境变量覆盖（跑完 run 的实际配置和命令文件不符时）：
+
+```bash
+PRECISION=fp8 TP=4 RESULT_FILENAME=my_run local/aggregate_agentic.sh /path/to/results
+```
+可覆盖：`CONC MODEL MODEL_PREFIX FRAMEWORK PRECISION TP EP_SIZE DP_ATTENTION SPEC_DECODING
+KV_OFFLOADING KV_OFFLOAD_BACKEND TOTAL_CPU_DRAM_GB RESULT_FILENAME RUNNER_TYPE AGENTIC_OUTPUT_DIR`。
+
+单独读一份（或一批）已聚合的 agentic JSON，用 `show_agentic.py`：
+
+```bash
+python3 local/show_agentic.py /workspace/results/dsv4_tp8_conc32_*.json
+python3 local/show_agentic.py /workspace/results --csv agentic_summary.csv   # 扫目录里所有 *_local.json
+python3 local/show_agentic.py <json> --full                                  # 打印完整 request_metrics/server_metrics
+```
+
+表格列（正是 AgentX dashboard 曲线所需维度）：
+
+```
+conc  tp  ep  spec            kv   ok/total  out/gpu   tot/gpu  e2eNI.p50  e2eNI.p90  intvty.p50  ttft.p50
+  32   8   1   mtp  dram/hicache  3079/3433   102.53  15196.22      45.05      27.66       50.59      0.62
+```
+
+- **`out/gpu`** = 每卡输出吞吐（`throughput.per_gpu.output_tput_tps`，dashboard 纵轴）
+- **`e2eNI.p90`** = E2E Normalized Interactivity P90（`request_metrics.latency.e2e_norm_intvty.p90`，
+  dashboard 横轴，含 TTFT/排队的真实体感，通常远低于 `intvty=1/tpot`）
+- `ok/total` = 请求成功/总数；CSV 里字段更全（含 `e2eNI.p95`、聚合吞吐、`ttft/e2el` 各分位）。
+
+> `process_agentic_result` 只用标准库，不需要 agentic 那个 uv/aiperf venv，系统 `python3` 即可重算。

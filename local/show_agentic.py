@@ -35,6 +35,13 @@ def row_for(path: Path, blob: dict) -> dict:
     lat = rm.get("latency", {})
     tput = rm.get("throughput", {})
     pg = tput.get("per_gpu", {})
+    # kv_offload_backend may be a plain string or a {name, version} dict.
+    backend = blob.get("kv_offload_backend")
+    if isinstance(backend, dict):
+        backend = backend.get("name", "")
+    # Aggregate throughput is nested as throughput.<in|out|total>.tokens_per_second.
+    def agg_tps(kind: str):
+        return (tput.get(kind) or {}).get("tokens_per_second")
     return {
         "file": path.name,
         "hw": blob.get("hw", ""),
@@ -42,14 +49,15 @@ def row_for(path: Path, blob: dict) -> dict:
         "ep": blob.get("ep", ""),
         "conc": blob.get("conc", ""),
         "spec": blob.get("spec_decoding", ""),
-        "kv": f"{blob.get('kv_offloading','')}/{blob.get('kv_offload_backend','') or '-'}",
+        "kv": f"{blob.get('kv_offloading','')}/{backend or '-'}",
         "dram_gb": blob.get("allocated_cpu_dram_gb", ""),
         "ok": blob.get("num_requests_successful", ""),
         "total": blob.get("num_requests_total", ""),
         # throughput (tokens/s)
         "out_tps_per_gpu": pg.get("output_tput_tps"),
         "tot_tps_per_gpu": pg.get("total_tput_tps"),
-        "out_tps_agg": tput.get("output_tput_tps"),
+        "out_tps_agg": agg_tps("output"),
+        "tot_tps_agg": agg_tps("total"),
         # e2e normalized interactivity (dashboard X axis), tok/s/user
         "e2e_norm_intvty_p50": pct(lat, "e2e_norm_intvty", "p50"),
         "e2e_norm_intvty_p90": pct(lat, "e2e_norm_intvty", "p90"),
