@@ -262,7 +262,10 @@ def build_jobs(recipe_name: str, recipe: dict, runners_cfg: dict,
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("recipe", nargs="?", help="recipe key from amd-master.yaml")
+    ap.add_argument("recipe", nargs="?", help="recipe key from the config file")
+    ap.add_argument("--config", default=str(AMD_MASTER),
+                    help="master config to read recipes from "
+                         "(default: configs/amd-master.yaml)")
     ap.add_argument("--list", action="store_true",
                     help="list all single-node mi355x recipe names and exit")
     ap.add_argument("--step-size", type=int, default=DEFAULT_STEP_SIZE)
@@ -275,7 +278,10 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8888)
     args = ap.parse_args()
 
-    master = yaml.safe_load(AMD_MASTER.read_text())
+    config_path = Path(args.config)
+    if not config_path.is_file():
+        sys.exit(f"config not found: {config_path}")
+    master = yaml.safe_load(config_path.read_text())
     runners_cfg = yaml.safe_load(RUNNERS.read_text())
 
     if args.list:
@@ -290,7 +296,7 @@ def main() -> None:
     if not args.recipe:
         ap.error("recipe name required (or use --list)")
     if args.recipe not in master:
-        sys.exit(f"recipe '{args.recipe}' not found in {AMD_MASTER}")
+        sys.exit(f"recipe '{args.recipe}' not found in {config_path}")
 
     jobs = build_jobs(args.recipe, master[args.recipe], runners_cfg,
                       args.step_size, args.min_conc, args.max_conc,

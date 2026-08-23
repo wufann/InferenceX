@@ -61,6 +61,7 @@ recipe 名之后的参数会透传给 `expand_recipe.py`：
 
 | 参数 | 作用 |
 | --- | --- |
+| `--config PATH` | 从指定配置文件读 recipe（默认 `configs/amd-master.yaml`），用于跑自定义/裁剪的独立 recipe |
 | `--min-conc N` / `--max-conc N` | 只跑落在 `[min,max]` 的并发点 |
 | `--step-size N` | 并发几何倍增步长（默认 2，和 CI 一致） |
 | `--total-cpu-dram-gb N` | 覆盖 agentic 自动算出的 DRAM 预算（GB） |
@@ -74,6 +75,53 @@ recipe 名之后的参数会透传给 `expand_recipe.py`：
 | `DRY_RUN=1` | 只展开并打印 job，不启动 |
 | `RESULT_ROOT=<dir>` | 结果收集目录（默认 `./local_results`） |
 | `KEEP_GOING=1` | 单个 job 失败后继续跑下一个（默认失败即停） |
+
+## 只跑单个并发点（自定义独立 recipe）
+
+想只测某一个并发点（例如 dsv4 sglang agentic 的 conc 32），有两种方式：
+
+**方式 A —— 在完整 recipe 上用并发过滤（最省事）**
+
+```bash
+local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-mtp --min-conc 32 --max-conc 32
+```
+
+`--min-conc/--max-conc` 会把该 recipe 所有 arm 里落在 `[32,32]` 的并发点筛出来。注意
+conc 32 只存在于官方 recipe 的第二条 DRAM-offload arm，所以最终正好 1 个 job。
+
+**方式 B —— 用一个自包含的独立 recipe 文件（推荐，可复现、可版本化）**
+
+仓库自带示例 `local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc32.yaml`，从官方
+`dsv4-fp4-mi355x-sglang-agentic-mtp` 裁剪而来，镜像/模型/精度/框架/所有 flag 不变，
+只保留 `conc-list: [32]`。用 `--config` 指向它即可，**无需改动 `configs/amd-master.yaml`**：
+
+```bash
+# 预览（不启动）：确认拓扑、脚本、DRAM 预算
+DRY_RUN=1 local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-conc32 \
+  --config local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc32.yaml
+
+# 实跑（需在 SGLang ROCm 容器内）
+local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-conc32 \
+  --config local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc32.yaml
+
+# 跑完聚合结果
+python3 local/aggregate_results.py local_results --csv local_results/summary.csv
+```
+
+预览会解析出唯一的 job：
+
+```
+[1/1] benchmarks/single_node/agentic/dsv4_fp4_mi355x_sglang_mtp.sh
+  MODEL=deepseek-ai/DeepSeek-V4-Pro  TP=8  EP=1  DPA=false  CONC=32  SPEC=mtp
+  KV_OFFLOADING=dram  BACKEND=hicache  DRAM_GB=2399
+  RESULT_FILENAME=dsv4_tp8_conc32_kvdram-hicache_spec-mtp_fp4_sglang_local
+```
+
+其中 `TOTAL_CPU_DRAM_GB=2399` 由官方公式算出（TP8 @ dram-util 0.80：
+`min(3_095_781, 2_861_022) MiB × 1MiB × 0.80 × 8/8 / 1e9`）。
+
+要自己做别的单点，复制那个 yaml 改 `conc-list`（以及需要的 `tp`/`kv-offloading` 等）即可。
+每个独立 recipe 文件的顶层 key 就是传给 `run_local.sh` 的 recipe 名。
 
 ## 每个 job 导出的环境变量契约
 
@@ -109,7 +157,38 @@ DURATION RESULT_DIR RESULT_FILENAME SCENARIO_TYPE=agentic-coding IS_AGENTIC=1 PO
 - **改并发/搜索空间**：不要改脚本，改 `configs/amd-master.yaml` 里对应 recipe 的 `search-space`，
   或用 `--min-conc/--max-conc/--step-size` 现场裁剪。
 
-## 结果
+## 结果聚合
 
-每个 job 的结果 JSON（文件名以 `RESULT_FILENAME` 开头）会被收集到 `RESULT_ROOT`（默认
-`./local_results`）。如需与官方一样做聚合，可参考 `utils/process_result.py`。
+每个 job 的原始结果 JSON（`benchmark_serving.py` 产出，文件名以 `RESULT_FILENAME` 开头）会被
+收集到 `RESULT_ROOT`（默认 `./local_results`）。用 `local/aggregate_results.py` 把整个目录汇总成
+一张对比表 + CSV：
+
+```bash
+# 汇总 ./local_results 下所有结果，打印表格并导出 CSV
+python3 local/aggregate_results.py local_results --csv local_results/summary.csv
+
+# 也可直接指定文件
+python3 local/aggregate_results.py a.json b.json --hw mi355x
+```
+
+或让驱动器跑完自动聚合：`AGGREGATE=1 local/run_local.sh dsv4-fp4-mi355x-sglang`。
+
+`aggregate_results.py` 是 `utils/process_result.py` 的**本地无依赖等价物**。官方脚本在 CI 里
+逐文件、从环境变量读拓扑；本地版从 `RESULT_FILENAME`（`…_tp8-pp1-…-dpatrue_…_conc64_local`）
+里反解出拓扑，因此事后对一整个目录聚合无需任何环境变量。派生字段与官方**完全一致**：
+
+- `tput_per_gpu` = `total_token_throughput / num_gpus`
+- `output_tput_per_gpu` = `output_throughput / num_gpus`
+- `input_tput_per_gpu` = `(total - output) / num_gpus`
+- 所有 `*_ms` 指标 → 秒（去掉 `_ms` 后缀）
+- 所有 `tpot` 指标 → 交互性 `intvty` = `1000 / tpot_ms`（tokens/s/user）
+- `num_gpus = tp * pp * pcp`（单机 MI355X 下 pp=pcp=1，即 `num_gpus = tp`）
+
+每个输入文件旁生成一份 `agg_<name>.json`（与官方 `agg_*.json` 同 schema），并打印按
+`(tp, dpa, conc)` 排序的表格，列包括：并发、TP、DP-attention、投机解码、
+每卡输出吞吐、每卡总吞吐、中位交互性、中位 TTFT、中位 E2E 时延——正好是复现官方
+Pareto 性能曲线所需的维度。
+
+> 注意：官方 `agg_*.json` 还含功耗字段（`aggregate_power.py` 从 `gpu_metrics.csv` 积分得到）。
+> 本地聚合器不做功耗积分（那需要 `benchmark_lib.sh` 的 GPU 监控采样和额外模块）。若需要功耗，
+> 直接用 `utils/process_result.py` 配合各 job 留下的 `gpu_metrics.csv`。

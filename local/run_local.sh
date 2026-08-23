@@ -127,5 +127,10 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
     echo "== DRY_RUN: no jobs executed =="
 else
     echo "== done. results in $RESULT_ROOT =="
+    echo "   aggregate with: python3 $SCRIPT_DIR/aggregate_results.py $RESULT_ROOT --csv $RESULT_ROOT/summary.csv"
+    if [[ "${AGGREGATE:-0}" == "1" ]]; then
+        echo "== aggregating =="
+        python3 "$SCRIPT_DIR/aggregate_results.py" "$RESULT_ROOT" --csv "$RESULT_ROOT/summary.csv" || true
+    fi
 fi
 exit $fail
