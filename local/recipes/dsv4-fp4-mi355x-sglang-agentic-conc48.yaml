@@ -1,0 +1,30 @@
+# Standalone local recipe: DeepSeek-V4-Pro FP4, MI355X, SGLang, agentic-coding,
+# concurrency 48 ONLY. Trimmed from the official `dsv4-fp4-mi355x-sglang-agentic-mtp`
+# in configs/amd-master.yaml (image/model/precision/framework/flags unchanged).
+#
+# conc 48 lives on the DRAM-offload arm (TP8, EP1, no DP-attn, HiCache host KV,
+# MTP). dram-utilization 0.80 -> TOTAL_CPU_DRAM_GB = 2399 on MI355X.
+# Its raw artifacts + agg JSON land in /workspace/results/<RESULT_FILENAME>/,
+# so it never overwrites the conc32 results.
+#
+# Run (inside the SGLang ROCm container, from the repo root, 8 free GPUs):
+#   local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-conc48 \
+#       --config local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc48.yaml
+#
+# Preview without launching:
+#   DRY_RUN=1 local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-conc48 \
+#       --config local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc48.yaml
+
+dsv4-fp4-mi355x-sglang-agentic-conc48:
+  image: lmsysorg/sglang-rocm:v0.5.17-rocm720-mi35x-20260813
+  model: deepseek-ai/DeepSeek-V4-Pro
+  model-prefix: dsv4
+  runner: cluster:mi355x-amds
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, dp-attn: false, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [48], spec-decoding: mtp }

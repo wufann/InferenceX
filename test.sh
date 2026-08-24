@@ -1,4 +1,9 @@
 export MODEL_PATH=/shared/amdgpu/home/fan_wu2_7kq/models/DeepSeek-V4-Pro
 export INFMAX_CONTAINER_WORKSPACE=/shared/amdgpu/home/fan_wu2_7kq/semi/InferenceX
-local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-conc32 \
-  --config local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc32.yaml
+# local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-conc32 \
+#   --config local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc32.yaml
+local/run_local.sh dsv4-fp4-mi355x-sglang-agentic-conc48 \
+    --config local/recipes/dsv4-fp4-mi355x-sglang-agentic-conc48.yaml
+
+
+# bash local/aggregate_agentic.sh /workspace/results/dsv4_tp8_conc48_kvdram-hicache_spec-mtp_fp4_sglang_local/

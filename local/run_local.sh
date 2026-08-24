@@ -28,6 +28,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Agentic scripts resolve trace loader / deps / aggregation relative to this;
+# it MUST be the repo root or aggregation silently fails and no agg JSON is
+# written (the conc32 symptom). Callers can still override it.
+export INFMAX_CONTAINER_WORKSPACE="${INFMAX_CONTAINER_WORKSPACE:-$REPO_ROOT}"
+
 RESULT_ROOT="${RESULT_ROOT:-$REPO_ROOT/local_results}"
 
 # --list is a pass-through to the expander.
@@ -66,7 +71,7 @@ for line in "${JOBS[@]}"; do
     unset MODEL MODEL_PREFIX PRECISION FRAMEWORK IMAGE EXP_NAME ISL OSL \
           MAX_MODEL_LEN TP PP_SIZE DCP_SIZE PCP_SIZE EP_SIZE DP_ATTENTION \
           CONC SPEC_DECODING RANDOM_RANGE_RATIO DISAGG RUN_EVAL EVAL_ONLY \
-          RESULT_DIR RESULT_FILENAME PORT GPU_COUNT SCENARIO_TYPE \
+          RESULT_DIR AGENTIC_OUTPUT_DIR RESULT_FILENAME PORT GPU_COUNT SCENARIO_TYPE \
           SCENARIO_SUBDIR IS_AGENTIC KV_OFFLOADING KV_OFFLOAD_BACKEND \
           KV_OFFLOAD_BACKEND_METADATA TOTAL_CPU_DRAM_GB DURATION 2>/dev/null
 
@@ -96,10 +101,13 @@ for line in "${JOBS[@]}"; do
     echo "  RESULT_FILENAME=$RESULT_FILENAME"
     echo "===================================================================="
 
+    echo "  RESULT_DIR=${RESULT_DIR:-/workspace/results}  WORKSPACE=$INFMAX_CONTAINER_WORKSPACE"
+
     if [[ "${DRY_RUN:-0}" == "1" ]]; then
         continue
     fi
 
+    mkdir -p "${RESULT_DIR:-/workspace/results}" 2>/dev/null || true
     bash "$SCRIPT"
     job_rc=$?
     if [[ $job_rc -ne 0 ]]; then

@@ -1,0 +1,3 @@
+file,hw,tp,ep,conc,spec,kv,dram_gb,ok,total,out_tps_per_gpu,tot_tps_per_gpu,out_tps_agg,tot_tps_agg,e2e_norm_intvty_p50,e2e_norm_intvty_p90,e2e_norm_intvty_p95,intvty_p50,ttft_p50_s,e2el_p50_s
+dsv4_tp8_conc32_kvdram-hicache_spec-mtp_fp4_sglang.json,mi355x,8,1,32,mtp,dram/hicache,2399,3079,3433,102.52711,15196.21766,820.21691,121569.74129,45.04676,27.66015,22.01726,50.59206,0.61853,8.57024
+dsv4_tp8_conc48_kvdram-hicache_spec-mtp_fp4_sglang.json,mi355x,8,1,48,mtp,dram/hicache,0,4109,4640,136.28682,19365.14544,1090.29457,154921.16355,34.32495,21.44428,16.84019,38.22164,0.70114,11.75665

@@ -248,7 +248,10 @@ def build_jobs(recipe_name: str, recipe: dict, runners_cfg: dict,
                     "DISAGG": "false",
                     "RUN_EVAL": "false",
                     "EVAL_ONLY": "false",
-                    "RESULT_DIR": "/workspace/results",
+                    # Per-point dir so concurrency points never overwrite each
+                    # other's raw artifacts; agg JSON lands in the same dir.
+                    "RESULT_DIR": f"/workspace/results/{rf}",
+                    "AGENTIC_OUTPUT_DIR": f"/workspace/results/{rf}",
                     "RESULT_FILENAME": rf,
                     "PORT": str(port),
                     "GPU_COUNT": str(tp),
