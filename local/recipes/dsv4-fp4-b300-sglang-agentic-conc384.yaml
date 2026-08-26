@@ -1,0 +1,30 @@
+# Standalone local recipe: DeepSeek-V4-Pro FP4, B300, SGLang, agentic-coding,
+# concurrency 384 ONLY. Trimmed from the official `dsv4-fp4-b300-sglang-agentic-hicache-mtp`
+# in configs/nvidia-master.yaml (image/model/precision/framework/flags unchanged).
+#
+# conc 384 lives on the DEP8 arm: TP8 / EP8 / DP-attention / HiCache host KV / MTP.
+# That arm carries the +28% mega-MoE + prefill-decode-interval retune (PR #2701).
+# dram-utilization 0.95 -> TOTAL_CPU_DRAM_GB ~= 2849 on cluster:b300-nv (the real
+# HiCache capacity is set by the script's host/device token ratio, not this value).
+#
+# Run inside the SGLang B300 container (image below), from the repo root, 8 free B300 GPUs:
+#   local/run_local.sh dsv4-fp4-b300-sglang-agentic-conc384 \
+#       --config local/recipes/dsv4-fp4-b300-sglang-agentic-conc384.yaml
+#
+# Preview:
+#   DRY_RUN=1 local/run_local.sh dsv4-fp4-b300-sglang-agentic-conc384 \
+#       --config local/recipes/dsv4-fp4-b300-sglang-agentic-conc384.yaml
+
+dsv4-fp4-b300-sglang-agentic-conc384:
+  image: lmsysorg/sglang-staging:dev-cu13-pr-35880
+  model: deepseek-ai/DeepSeek-V4-Pro
+  model-prefix: dsv4
+  runner: cluster:b300-nv
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.95
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [384], spec-decoding: mtp, router: { name: sglang-router, version: "0.3.2" } }

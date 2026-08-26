@@ -100,17 +100,37 @@ def agentic_dram_gb(dram_util: float, tp: int, runner: str, runners_cfg: dict) -
     return int(proportional / BYTES_PER_GB)
 
 
-def resolve_script(model_prefix: str, precision: str, framework: str,
-                   scenario_subdir: str, spec: str) -> str:
-    """Reproduce the script-resolution logic in launch_mi355x-amds.sh.
+# SKU tokens as they appear in benchmark script names. Longer/compound tokens
+# first so 'gb300' is not shadowed by the 'b300' substring test.
+HW_TOKENS = ("mi355x", "mi325x", "mi300x", "gb300", "gb200",
+             "b300", "b200", "h200", "h100", "rtx6000pro")
 
-    SCRIPT_BASE = <prefix>_<precision>_mi355x
+
+def hw_from_runner(runner: str) -> str:
+    """Derive the hardware SKU token (mi355x / b300 / ...) from a runner label.
+
+    Runners look like 'mi355x', 'cluster:mi355x-amds', 'cluster:b300-nv', 'b300'.
+    The SKU is what the benchmark script name embeds (dsv4_fp4_b300_sglang_mtp.sh).
+    """
+    r = runner.lower()
+    for tok in HW_TOKENS:
+        if tok in r:
+            return tok
+    sys.exit(f"cannot derive hardware SKU from runner '{runner}' "
+             f"(known: {', '.join(HW_TOKENS)})")
+
+
+def resolve_script(model_prefix: str, precision: str, framework: str,
+                   scenario_subdir: str, spec: str, hw: str) -> str:
+    """Reproduce the script-resolution logic in launch_<hw>-*.sh.
+
+    SCRIPT_BASE = <prefix>_<precision>_<hw>
     Try <base>_<framework>[_mtp].sh first; else <base>[_atom][_mtp].sh
     (framework suffix is '_atom' only for the atom framework, else '').
     """
     spec_suffix = "_mtp" if spec == "mtp" else ""
     framework_suffix = "_atom" if framework == "atom" else ""
-    base = f"{model_prefix}_{precision}_mi355x"
+    base = f"{model_prefix}_{precision}_{hw}"
     subdir = f"benchmarks/single_node/{scenario_subdir}"
     primary = f"{subdir}{base}_{framework}{spec_suffix}.sh"
     fallback = f"{subdir}{base}{framework_suffix}{spec_suffix}.sh"
@@ -127,12 +147,13 @@ def build_jobs(recipe_name: str, recipe: dict, runners_cfg: dict,
     precision = recipe["precision"]
     framework = recipe["framework"]
     runner = recipe["runner"]
+    hw = hw_from_runner(runner)
     image = recipe.get("image", "")
 
     if recipe.get("multinode"):
         sys.exit(
             f"recipe '{recipe_name}' is multinode/disaggregated; this local tool "
-            "targets single-node MI355X recipes only."
+            "targets single-node recipes only."
         )
 
     scenarios = recipe["scenarios"]
@@ -151,7 +172,7 @@ def build_jobs(recipe_name: str, recipe: dict, runners_cfg: dict,
         exp_name = f"{model_prefix}_{seq_len_str(isl, osl)}"
         max_model_len = isl + osl + 256
         script = resolve_script(model_prefix, precision, framework,
-                                "fixed_seq_len/", "none")
+                                "fixed_seq_len/", "none", hw)
         for arm in sc["search-space"]:
             tp = arm["tp"]
             ep = arm.get("ep", 1)
@@ -211,7 +232,7 @@ def build_jobs(recipe_name: str, recipe: dict, runners_cfg: dict,
             else:
                 total_dram = 0
             script = resolve_script(model_prefix, precision, framework,
-                                    "agentic/", spec)
+                                    "agentic/", spec, hw)
             for conc in conc_filter(conc_values_for_arm(arm, step)):
                 kv_tag = ("kvnone" if kv_offloading == "none"
                           else f"kv{kv_offloading}-{kv_backend_name}")
