@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
-# 纯 SGLang server 启动 · DSv4 FP4 · B300 · TP-only。无任何 InferenceX 依赖。
-# 用法: MODEL_PATH=/data/models/DeepSeek-V4-Pro TP=8 CONC=32 PORT=8888 bash server_tponly.sh
+# 纯 SGLang Decode server · DSv4 FP4 · B300 · TP-only · fake-prefill。
+# 用于纯 Decode kernel trace：只启动一个 Decode 实例，用 fake transfer backend
+# 直接给 128K/256K 分配 KV 并立即把 transfer 标记完成，不做真实 Prefill、不搬真实 KV。
+# 输出 token 无正确性意义，但稳态 Decode 的 batch/KV length/attention/MoE/MTP kernel
+# shape 可用于性能 profiling。不适合测 P→D transfer、首 token 延迟、真实 KV 或 prefix 命中。
+#
+# 与 server_tponly.sh 的差异（仅新增，其余保持一致以贴合目标 Decode 配置）：
+#   + --disaggregation-mode decode
+#   + --disaggregation-transfer-backend fake
+#   + --disable-radix-cache        # fake prefill 时不要开 decode radix cache
+#
+# 用法: MODEL_PATH=/data/models/DeepSeek-V4-Pro TP=8 CONC=16 PORT=8888 bash server_tponly_fakeprefill.sh
+# 客户端须用 run_case.sh ... --fake-prefill，并把 URL 直接指向本 server（不经 PD router）。
 set -euo pipefail
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-V4-Pro}"       # 对外 served-model-name
 MODEL_PATH="${MODEL_PATH:-/data/models/DeepSeek-V4-Pro}"
 TP="${TP:-8}"
-CONC="${CONC:-32}"
+CONC="${CONC:-16}"
 PORT="${PORT:-8888}"
 
 # ---- server 相关 env（性能/正确性，不是 InferenceX 动作）----
@@ -38,8 +49,8 @@ exec python3 -m sglang.launch_server \
   --allow-auto-truncate --chunked-prefill-size 8192 \
   --tool-call-parser deepseekv4 --reasoning-parser deepseek-v4 \
   --watchdog-timeout 1800 \
-  --speculative-algorithm EAGLE --speculative-num-steps 3 \
-  --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 \
   --attention-backend compressed --page-size 256 --disable-shared-experts-fusion \
-  --enable-metrics --enable-cache-report \
+  --enable-metrics \
+  --disaggregation-mode decode --disaggregation-transfer-backend fake \
+  --disable-radix-cache \
   ${CHAT_TEMPLATE:+--chat-template "$CHAT_TEMPLATE"}
