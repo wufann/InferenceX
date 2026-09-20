@@ -1,0 +1,42 @@
+# Standalone local recipe: Qwen3.8-Flash-Next FP8, MI355X, SGLang, agentic-coding,
+# concurrency sweep 8 / 12 / 16. Mirrors the NVIDIA B300 NVFP4 arm's conc points
+# (configs/nvidia-master.yaml qwen3.8next-fp4-b300-sglang-agentic-mtp, [1,4,8,12,16])
+# but on gfx950 FP8 at the verified single-GPU TP1/EP1 topology.
+#
+# Drives benchmarks/single_node/agentic/qwen3.8next_fp8_mi355x_sglang_mtp.sh
+# (resolved from model-prefix + precision + hw + framework + mtp). kv-offloading
+# is none, so no host-DRAM tier and no runners.yaml DRAM sizing is needed.
+#
+# Prereqs (inside the PR#36601 SGLang ROCm container, from the InferenceX repo root):
+#   export MODEL_PATH=/shared/amdgpu/home/fan_wu2_7kq/models/Qwen3.8-Flash-Next-FP8
+#   python3 -m pip install --break-system-packages pyyaml   # if missing
+#
+# Preview the 3 jobs without launching:
+#   DRY_RUN=1 local/run_local.sh qwen3.8next-fp8-mi355x-sglang-agentic-conc8-12-16 \
+#       --config local/recipes/qwen3.8next-fp8-mi355x-sglang-agentic-conc8-12-16.yaml
+#
+# Run the full sweep (each point is a fresh server, ~1h; conc points never
+# overwrite each other -- per-point RESULT_DIR):
+#   local/run_local.sh qwen3.8next-fp8-mi355x-sglang-agentic-conc8-12-16 \
+#       --config local/recipes/qwen3.8next-fp8-mi355x-sglang-agentic-conc8-12-16.yaml
+#
+# Run one point only (e.g. conc 12):
+#   ... --config <this file> --min-conc 12 --max-conc 12
+#
+# Aggregate + read (agentic lane):
+#   local/aggregate_agentic.sh /workspace/results/qwen3.8next_tp1_conc12_kvnone_spec-mtp_fp8_sglang_local
+#   python3 local/show_agentic.py /workspace/results/qwen3.8next_tp1_conc*_*/*.json --csv qwen_curve.csv
+
+qwen3.8next-fp8-mi355x-sglang-agentic-conc8-12-16:
+  image: aigmkt/qwen3.8-flash-next:v0.5.19-rocm724-mi35x-20260910-pr36601
+  model: /shared/amdgpu/home/fan_wu2_7kq/models/Qwen3.8-Flash-Next-FP8
+  model-prefix: qwen3.8next
+  runner: cluster:mi355x-amds
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 1, ep: 1, dp-attn: false, kv-offloading: none, conc-list: [8, 12, 16], spec-decoding: mtp }
