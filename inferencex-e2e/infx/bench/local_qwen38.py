@@ -65,7 +65,7 @@ def server_argv(args: argparse.Namespace, conc: int) -> list[str]:
         "--watchdog-timeout", "1200", "--mem-fraction-static", "0.9",
         "--model-loader-extra-config", '{"enable_multithread_load": true}',
         "--max-running-requests", str(2 * conc),
-        "--cuda-graph-max-bs", str(min(conc, 64)),
+        "--cuda-graph-max-bs-decode", str(min(conc, 64)),
         "--speculative-algorithm", "NEXTN", "--speculative-num-steps", "3",
         "--speculative-eagle-topk", "1", "--speculative-num-draft-tokens", "4",
         "--reasoning-parser", "qwen3-thinking", "--stream-interval", "50",
